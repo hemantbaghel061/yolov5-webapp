@@ -144,9 +144,7 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=port, debug=False)
 ```
 
----
-
-### Also edit `requirements.txt` on GitHub — add `ultralytics`:
+5. Also update `requirements.txt` the same way — **Ctrl+A, delete, paste**:
 ```
 flask==2.3.3
 gunicorn==21.2.0
