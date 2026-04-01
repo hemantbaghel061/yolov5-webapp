@@ -4,8 +4,26 @@ services:
     env: python
     region: oregon
     plan: free
+    pythonVersion: "3.11.9"
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --preload
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.10.13
+```
+
+### Also fix `requirements.txt` — update Pillow version
+
+Click `requirements.txt` → pencil ✏️ → replace with:
+```
+flask==2.3.3
+gunicorn==21.2.0
+torch
+torchvision
+Pillow
+numpy
+pandas
+requests
+PyYAML
+tqdm
+matplotlib
+seaborn
+scipy
+opencv-python-headless
