@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>YOLOv5 · Live Detection</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@300;500;700;900&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg: #080c0f;
+  --surf: #0e1419;
+  --surf2: #141b22;
+  --border: #1e2a35;
+  --border2: #263340;
+  --accent: #00d4ff;
+  --accent2: #ff6b35;
+  --green: #39ff14;
+  --text: #d4e4f0;
+  --muted: #4a6070;
+  --mono: 'Space Mono', monospace;
+  --head: 'Barlow Condensed', sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--head);min-height:100vh;overflow-x:hidden}
+
+/* scanline overlay */
+body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,212,255,0.012) 2px,rgba(0,212,255,0.012) 4px);pointer-events:none;z-index:9999}
+
+/* grid bg */
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,0.025) 1px,transparent 1px);background-size:60px 60px;pointer-events:none;z-index:0}
+
+/* ── HEADER ── */
+header{position:relative;z-index:2;display:flex;align-items:center;gap:20px;padding:28px 40px;border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:14px}
+.logo-box{width:44px;height:44px;border:2px solid var(--accent);display:grid;place-items:center;position:relative}
+.logo-box::before{content:'';position:absolute;inset:-5px;border:1px solid rgba(0,212,255,0.2)}
+.logo-box svg{width:22px;height:22px}
+.logo h1{font-size:28px;font-weight:900;letter-spacing:0.05em;line-height:1}
+.logo h1 em{color:var(--accent);font-style:normal}
+.logo p{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.2em;margin-top:4px;text-transform:uppercase}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:16px}
+.live-pill{font-family:var(--mono);font-size:9px;letter-spacing:0.2em;padding:5px 12px;border:1px solid var(--green);color:var(--green);text-transform:uppercase;display:flex;align-items:center;gap:7px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 1.2s ease infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+
+/* ── TABS ── */
+.tab-bar{position:relative;z-index:2;display:flex;border-bottom:1px solid var(--border);padding:0 40px}
+.tab{font-family:var(--mono);font-size:10px;letter-spacing:0.15em;text-transform:uppercase;padding:16px 20px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:color .2s,border-color .2s;display:flex;align-items:center;gap:8px;user-select:none}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-icon{font-size:13px}
+
+/* ── LAYOUT ── */
+.workspace{position:relative;z-index:1;display:grid;grid-template-columns:1fr 360px;min-height:calc(100vh - 135px)}
+@media(max-width:900px){.workspace{grid-template-columns:1fr}}
+
+/* ── PANELS ── */
+.view-panel{border-right:1px solid var(--border);padding:28px 32px;display:flex;flex-direction:column;gap:20px}
+.side-panel{padding:28px 24px;display:flex;flex-direction:column;gap:20px;background:var(--surf);overflow-y:auto}
+
+/* ── SECTION LABELS ── */
+.section-label{font-family:var(--mono);font-size:9px;letter-spacing:0.25em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.section-label::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ── TAB SECTIONS ── */
+.tab-section{display:none}
+.tab-section.active{display:block}
+
+/* ── DROP ZONE ── */
+#drop-zone{border:1px dashed var(--border2);padding:40px 20px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;position:relative}
+#drop-zone:hover,#drop-zone.drag-over{border-color:var(--accent);background:rgba(0,212,255,0.03)}
+#drop-zone .dz-icon{font-size:32px;margin-bottom:16px}
+#drop-zone h3{font-size:20px;font-weight:700;letter-spacing:0.05em;margin-bottom:6px}
+#drop-zone p{font-family:var(--mono);font-size:10px;color:var(--muted)}
+#file-input{display:none}
+
+/* ── IMAGE PREVIEW ── */
+.img-display{position:relative;background:#000;border:1px solid var(--border)}
+.img-display img{width:100%;display:block;max-height:480px;object-fit:contain}
+.img-overlay-label{position:absolute;top:10px;left:10px;font-family:var(--mono);font-size:9px;letter-spacing:0.15em;text-transform:uppercase;padding:4px 10px;background:rgba(0,0,0,0.8);border:1px solid var(--accent);color:var(--accent)}
+
+/* ── CAMERA VIEW ── */
+#cam-container{position:relative;background:#000;border:1px solid var(--border);min-height:300px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+#cam-feed{width:100%;display:block;max-height:480px;object-fit:contain}
+#cam-result{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:none}
+.cam-placeholder{text-align:center;color:var(--muted);font-family:var(--mono);font-size:11px;padding:48px}
+.cam-placeholder .big{font-size:40px;margin-bottom:12px}
+.cam-placeholder p{letter-spacing:0.1em;text-transform:uppercase;font-size:9px;margin-top:8px}
+.fps-badge{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:9px;padding:4px 8px;background:rgba(0,0,0,0.85);border:1px solid var(--green);color:var(--green);letter-spacing:0.1em}
+canvas#cam-canvas{display:none}
+
+/* ── RTSP ── */
+.rtsp-input-row{display:flex;gap:8px;align-items:stretch}
+.rtsp-input-row input{flex:1;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:11px;padding:10px 14px;outline:none;transition:border-color .2s}
+.rtsp-input-row input:focus{border-color:var(--accent)}
+.rtsp-input-row input::placeholder{color:var(--muted)}
+
+/* ── BUTTONS ── */
+.btn{padding:11px 20px;font-family:var(--mono);font-size:10px;letter-spacing:0.15em;text-transform:uppercase;cursor:pointer;border:none;transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;justify-content:center;gap:8px;user-select:none}
+.btn:active{transform:scale(0.97)}
+.btn:disabled{opacity:0.35;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#000;font-weight:700}
+.btn-primary:hover:not(:disabled){opacity:0.85}
+.btn-danger{background:var(--accent2);color:#fff;font-weight:700}
+.btn-danger:hover:not(:disabled){opacity:0.85}
+.btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border2)}
+.btn-ghost:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.btn-green{background:var(--green);color:#000;font-weight:700}
+.btn-green:hover:not(:disabled){opacity:0.85}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap}
+
+/* ── CAM CONTROLS ── */
+.cam-controls{display:flex;flex-direction:column;gap:10px}
+.cam-selector{display:flex;gap:8px;flex-wrap:wrap}
+.cam-opt{font-family:var(--mono);font-size:9px;padding:7px 14px;border:1px solid var(--border2);cursor:pointer;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);transition:all .15s}
+.cam-opt:hover,.cam-opt.sel{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,0.06)}
+.interval-row{display:flex;align-items:center;gap:12px;font-family:var(--mono);font-size:10px;color:var(--muted)}
+.interval-row input[type=range]{flex:1;accent-color:var(--accent)}
+.interval-row span{color:var(--accent);min-width:50px;text-align:right}
+
+/* ── DETECTION RESULTS ── */
+.det-list{display:flex;flex-direction:column;gap:6px}
+.det-item{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--surf2);border:1px solid var(--border);border-left:3px solid var(--accent);animation:slide-in .25s ease both}
+@keyframes slide-in{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+.det-label{font-size:14px;font-weight:700;letter-spacing:0.05em;text-transform:capitalize;min-width:80px}
+.det-bar-wrap{flex:1;height:3px;background:var(--border)}
+.det-bar{height:100%;background:var(--accent);transition:width .4s ease}
+.det-conf{font-family:var(--mono);font-size:10px;color:var(--accent);min-width:44px;text-align:right}
+.det-count-badge{font-family:var(--mono);font-size:9px;padding:5px 12px;border:1px solid var(--border2);color:var(--muted);letter-spacing:0.15em;text-align:center;margin-top:8px}
+.det-count-badge b{color:var(--accent)}
+.det-empty{font-family:var(--mono);font-size:10px;color:var(--muted);padding:20px;text-align:center;border:1px dashed var(--border);letter-spacing:0.1em}
+
+/* ── ERROR ── */
+.err-box{display:none;padding:12px 14px;border:1px solid var(--accent2);border-left:3px solid var(--accent2);font-family:var(--mono);font-size:10px;color:var(--accent2);letter-spacing:0.05em}
+
+/* ── STATUS LINE ── */
+.status-line{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.1em;padding:8px 0;display:flex;align-items:center;gap:8px}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.status-dot.ok{background:var(--green)}
+.status-dot.busy{background:var(--accent);animation:blink .8s infinite}
+.status-dot.err{background:var(--accent2)}
+
+/* ── SPINNER ── */
+.spin{width:12px;height:12px;border:2px solid rgba(0,0,0,0.25);border-top-color:currentColor;border-radius:50%;animation:spin .5s linear infinite;display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── MOBILE NOTE ── */
+.mobile-note{font-family:var(--mono);font-size:9px;color:var(--muted);padding:10px 14px;border:1px dashed var(--border);letter-spacing:0.08em;line-height:1.7}
+.mobile-note b{color:var(--accent2)}
+
+/* ── QR section ── */
+.qr-section{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px;border:1px dashed var(--border)}
+#qr-img{width:140px;height:140px;border:1px solid var(--border2)}
+.qr-url{font-family:var(--mono);font-size:9px;color:var(--accent);word-break:break-all;text-align:center;letter-spacing:0.05em}
+
+/* ── FOOTER ── */
+footer{position:relative;z-index:2;padding:16px 40px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.1em}
+
+@media(max-width:640px){
+  header{padding:20px}
+  .tab-bar{padding:0 16px}
+  .view-panel,.side-panel{padding:20px 16px}
+  footer{flex-direction:column;gap:6px;padding:16px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+        <rect x="3" y="14" width="7" height="7"/><circle cx="17.5" cy="17.5" r="3.5"/>
+      </svg>
+    </div>
+    <div>
+      <h1>YOLO<em>v5</em></h1>
+      <p>Real-time object detection · 80 classes</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="live-pill"><div class="live-dot"></div>SYSTEM ONLINE</div>
+  </div>
+</header>
+
+<!-- TABS -->
+<div class="tab-bar">
+  <div class="tab active" onclick="switchTab('upload')" id="tab-upload">
+    <span class="tab-icon">🖼</span> Image Upload
+  </div>
+  <div class="tab" onclick="switchTab('webcam')" id="tab-webcam">
+    <span class="tab-icon">📷</span> Webcam
+  </div>
+  <div class="tab" onclick="switchTab('mobile')" id="tab-mobile">
+    <span class="tab-icon">📱</span> Mobile Camera
+  </div>
+  <div class="tab" onclick="switchTab('rtsp')" id="tab-rtsp">
+    <span class="tab-icon">📡</span> RTSP Stream
+  </div>
+</div>
+
+<!-- WORKSPACE -->
+<div class="workspace">
+
+  <!-- ═══ LEFT / MAIN VIEW ═══ -->
+  <div class="view-panel">
+
+    <!-- ── UPLOAD TAB ── -->
+    <div class="tab-section active" id="sec-upload">
+      <div class="section-label">Image Input</div>
+      <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <div class="dz-icon">📂</div>
+        <h3>DROP IMAGE HERE</h3>
+        <p>or click to browse · PNG JPG WEBP · max 10MB</p>
+      </div>
+      <input type="file" id="file-input" accept="image/*"/>
+
+      <div id="upload-preview" style="display:none">
+        <div class="img-display">
+          <img id="preview-img" src="" alt="preview"/>
+          <div class="img-overlay-label">INPUT</div>
+        </div>
+      </div>
+
+      <div id="upload-result" style="display:none">
+        <div class="section-label" style="margin-top:8px">Detection Output</div>
+        <div class="img-display">
+          <img id="result-img" src="" alt="result"/>
+          <div class="img-overlay-label" style="border-color:var(--green);color:var(--green)">OUTPUT</div>
+        </div>
+      </div>
+
+      <div id="upload-err" class="err-box"></div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" id="upload-btn" onclick="runUploadDetection()" disabled>
+          <div class="spin" id="upload-spin"></div>
+          <span id="upload-btn-text">RUN DETECTION</span>
+        </button>
+        <button class="btn btn-ghost" onclick="resetUpload()">CLEAR</button>
+      </div>
+    </div>
+
+    <!-- ── WEBCAM TAB ── -->
+    <div class="tab-section" id="sec-webcam">
+      <div class="section-label">Webcam Feed</div>
+      <div id="cam-container">
+        <div class="cam-placeholder" id="cam-placeholder">
+          <div class="big">📷</div>
+          <p>Click START CAMERA to begin</p>
+        </div>
+        <video id="cam-feed" autoplay playsinline muted style="display:none"></video>
+        <img id="cam-result" src="" alt="detected"/>
+        <canvas id="cam-canvas"></canvas>
+        <div class="fps-badge" id="fps-badge" style="display:none">-- FPS</div>
+      </div>
+
+      <div id="webcam-err" class="err-box"></div>
+
+      <div class="cam-controls">
+        <div class="section-label" style="margin-top:4px">Camera Source</div>
+        <div class="cam-selector" id="cam-selector">
+          <div class="cam-opt sel" data-facing="user">FRONT</div>
+          <div class="cam-opt" data-facing="environment">REAR</div>
+        </div>
+
+        <div class="interval-row">
+          <span>INTERVAL</span>
+          <input type="range" id="interval-range" min="200" max="3000" step="100" value="800" oninput="updateInterval(this.value)"/>
+          <span id="interval-label">0.8s</span>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-green" id="cam-start-btn" onclick="startWebcam()">▶ START CAMERA</button>
+          <button class="btn btn-danger" id="cam-stop-btn" onclick="stopWebcam()" disabled>■ STOP</button>
+        </div>
+      </div>
+
+      <div class="status-line">
+        <div class="status-dot" id="cam-status-dot"></div>
+        <span id="cam-status-text">CAMERA IDLE</span>
+      </div>
+    </div>
+
+    <!-- ── MOBILE TAB ── -->
+    <div class="tab-section" id="sec-mobile">
+      <div class="section-label">Mobile Camera (Same Network)</div>
+      <div class="mobile-note">
+        <b>HOW IT WORKS:</b> Open this app on your phone browser on the same WiFi. 
+        The phone's camera will stream frames to the server for detection.
+        Or scan the QR code below to open this page on your phone directly.
+      </div>
+
+      <div class="qr-section">
+        <canvas id="qr-canvas" width="140" height="140"></canvas>
+        <div class="qr-url" id="qr-url-text">Loading URL…</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--muted);text-align:center">
+          Scan with phone → open on mobile browser → switch to Webcam tab
+        </div>
+      </div>
+
+      <div class="section-label" style="margin-top:4px">Local IP Address</div>
+      <div style="font-family:var(--mono);font-size:11px;padding:12px 14px;background:var(--surf2);border:1px solid var(--border);color:var(--accent)" id="local-ip-display">
+        Detecting…
+      </div>
+
+      <div class="mobile-note" style="margin-top:8px">
+        <b>STEPS:</b><br/>
+        1. Make sure phone and laptop are on same WiFi<br/>
+        2. Run app with <code style="color:var(--accent)">python app.py</code><br/>
+        3. On phone, open: <code style="color:var(--accent)">http://YOUR_IP:5000</code><br/>
+        4. Switch to <b>Webcam</b> tab and tap START CAMERA<br/>
+        5. Phone rear camera will be used for detection
+      </div>
+    </div>
+
+    <!-- ── RTSP TAB ── -->
+    <div class="tab-section" id="sec-rtsp">
+      <div class="section-label">RTSP / IP Camera Stream</div>
+
+      <div class="rtsp-input-row">
+        <input type="text" id="rtsp-url" placeholder="rtsp://admin:pass@192.168.1.100:554/stream1"
+          oninput="validateRtsp()"/>
+        <button class="btn btn-primary" id="rtsp-connect-btn" onclick="connectRtsp()">
+          <div class="spin" id="rtsp-spin"></div>
+          <span>CONNECT</span>
+        </button>
+      </div>
+
+      <div id="rtsp-result-wrap" style="display:none">
+        <div class="section-label" style="margin-top:8px">Live Detection</div>
+        <div class="img-display">
+          <img id="rtsp-result-img" src="" alt="rtsp result"/>
+          <div class="img-overlay-label" style="border-color:var(--accent2);color:var(--accent2)">RTSP</div>
+          <div class="fps-badge" id="rtsp-fps" style="display:flex">-- FPS</div>
+        </div>
+      </div>
+
+      <div id="rtsp-err" class="err-box"></div>
+
+      <div class="cam-controls">
+        <div class="interval-row">
+          <span>FRAME RATE</span>
+          <input type="range" id="rtsp-interval-range" min="300" max="5000" step="100" value="1000"
+            oninput="updateRtspInterval(this.value)"/>
+          <span id="rtsp-interval-label">1.0s</span>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-danger" id="rtsp-stop-btn" onclick="stopRtsp()" disabled>■ DISCONNECT</button>
+        </div>
+      </div>
+
+      <div class="status-line">
+        <div class="status-dot" id="rtsp-status-dot"></div>
+        <span id="rtsp-status-text">NOT CONNECTED</span>
+      </div>
+
+      <div class="mobile-note">
+        <b>SUPPORTED URLS:</b><br/>
+        RTSP: <code style="color:var(--accent)">rtsp://user:pass@ip:554/path</code><br/>
+        HTTP MJPEG: <code style="color:var(--accent)">http://ip:8080/video</code><br/>
+        Local webcam (server): use index <code style="color:var(--accent)">0</code> or <code style="color:var(--accent)">1</code>
+      </div>
+    </div>
+
+  </div><!-- /view-panel -->
+
+  <!-- ═══ RIGHT SIDEBAR ═══ -->
+  <div class="side-panel">
+    <div class="section-label">Detection Results</div>
+
+    <div id="det-placeholder" class="det-empty">
+      NO DETECTIONS YET<br/>
+      <span style="font-size:8px;margin-top:6px;display:block">Run detection to see results</span>
+    </div>
+
+    <div id="det-list" class="det-list" style="display:none"></div>
+    <div id="det-count" class="det-count-badge" style="display:none"></div>
+
+    <div class="section-label" style="margin-top:8px">System Status</div>
+    <div class="status-line">
+      <div class="status-dot ok"></div>YOLOv5s MODEL LOADED
+    </div>
+    <div class="status-line" id="global-status-line">
+      <div class="status-dot" id="global-dot"></div>
+      <span id="global-status">IDLE · WAITING FOR INPUT</span>
+    </div>
+
+    <div class="section-label" style="margin-top:8px">Detection Stats</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div style="padding:12px;background:var(--surf2);border:1px solid var(--border);text-align:center">
+        <div style="font-size:24px;font-weight:900;color:var(--accent)" id="stat-total">0</div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:4px;letter-spacing:0.12em">TOTAL RUNS</div>
+      </div>
+      <div style="padding:12px;background:var(--surf2);border:1px solid var(--border);text-align:center">
+        <div style="font-size:24px;font-weight:900;color:var(--green)" id="stat-objects">0</div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:4px;letter-spacing:0.12em">OBJECTS FOUND</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /workspace -->
+
+<footer>
+  <span>YOLOv5s · PyTorch · Flask · Gunicorn · OpenCV</span>
+  <span>COCO 80-class · Webcam · RTSP · Mobile</span>
+</footer>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// GLOBALS
+// ═══════════════════════════════════════════════════════
+let selectedUploadFile = null;
+let webcamStream = null;
+let webcamInterval = null;
+let webcamRunning = false;
+let camInterval = 800;
+let rtspStreamId = null;
+let rtspPollInterval = null;
+let rtspInterval = 1000;
+let totalRuns = 0;
+let totalObjects = 0;
+let lastFrameTime = 0;
+
+// ── TAB SWITCHER ──────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('sec-' + name).classList.add('active');
+  if (name === 'mobile') generateQR();
+}
+
+// ── STATUS HELPERS ────────────────────────────────────
+function setStatus(text, state) { // state: idle | busy | ok | err
+  const dot = document.getElementById('global-dot');
+  const label = document.getElementById('global-status');
+  dot.className = 'status-dot' + (state ? ' ' + state : '');
+  label.textContent = text;
+}
+function setDetResults(detections, count) {
+  const placeholder = document.getElementById('det-placeholder');
+  const list = document.getElementById('det-list');
+  const countEl = document.getElementById('det-count');
+
+  totalRuns++;
+  totalObjects += count;
+  document.getElementById('stat-total').textContent = totalRuns;
+  document.getElementById('stat-objects').textContent = totalObjects;
+
+  if (count === 0) {
+    placeholder.style.display = 'block';
+    placeholder.textContent = 'NO OBJECTS DETECTED';
+    list.style.display = 'none';
+    countEl.style.display = 'none';
+    return;
+  }
+
+  placeholder.style.display = 'none';
+  list.style.display = 'flex';
+  countEl.style.display = 'block';
+  list.innerHTML = '';
+
+  const grouped = {};
+  detections.forEach(d => {
+    if (!grouped[d.label] || d.confidence > grouped[d.label]) grouped[d.label] = d.confidence;
+  });
+
+  Object.entries(grouped).sort((a,b) => b[1]-a[1]).forEach(([label, conf], i) => {
+    const item = document.createElement('div');
+    item.className = 'det-item';
+    item.style.animationDelay = `${i*0.04}s`;
+    item.innerHTML = `
+      <span class="det-label">${label}</span>
+      <div class="det-bar-wrap"><div class="det-bar" style="width:${conf}%"></div></div>
+      <span class="det-conf">${conf}%</span>`;
+    list.appendChild(item);
+  });
+
+  const labels = [...new Set(detections.map(d => d.label))];
+  countEl.innerHTML = `<b>${count}</b> object${count!==1?'s':''} · <b>${labels.length}</b> class${labels.length!==1?'es':''}`;
+}
+
+// ═══════════════════════════════════════════════════════
+// UPLOAD TAB
+// ═══════════════════════════════════════════════════════
+const fileInput = document.getElementById('file-input');
+const dropZone = document.getElementById('drop-zone');
+fileInput.addEventListener('change', e => handleUploadFile(e.target.files[0]));
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) handleUploadFile(e.dataTransfer.files[0]);
+});
+
+function handleUploadFile(file) {
+  selectedUploadFile = file;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    document.getElementById('preview-img').src = ev.target.result;
+    document.getElementById('upload-preview').style.display = 'block';
+    document.getElementById('upload-result').style.display = 'none';
+    document.getElementById('upload-btn').disabled = false;
+    hideErr('upload-err');
+  };
+  reader.readAsDataURL(file);
+}
+
+function resetUpload() {
+  selectedUploadFile = null;
+  document.getElementById('upload-preview').style.display = 'none';
+  document.getElementById('upload-result').style.display = 'none';
+  document.getElementById('upload-btn').disabled = true;
+  fileInput.value = '';
+  hideErr('upload-err');
+}
+
+async function runUploadDetection() {
+  if (!selectedUploadFile) return;
+  setBtnLoading('upload-btn', 'upload-spin', 'upload-btn-text', 'DETECTING…', true);
+  setStatus('RUNNING DETECTION…', 'busy');
+  hideErr('upload-err');
+
+  const fd = new FormData();
+  fd.append('image', selectedUploadFile);
+  try {
+    const res = await fetch('/detect', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok || !data.success) { showErr('upload-err', data.error || 'Detection failed'); setStatus('ERROR', 'err'); return; }
+    document.getElementById('result-img').src = data.image_b64;
+    document.getElementById('upload-result').style.display = 'block';
+    setDetResults(data.detections, data.count);
+    setStatus(`DONE · ${data.count} OBJECT${data.count!==1?'S':''} FOUND`, 'ok');
+  } catch(e) {
+    showErr('upload-err', 'Network error: ' + e.message);
+    setStatus('NETWORK ERROR', 'err');
+  } finally {
+    setBtnLoading('upload-btn', 'upload-spin', 'upload-btn-text', 'RUN DETECTION', false);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// WEBCAM TAB
+// ═══════════════════════════════════════════════════════
+let selectedFacing = 'user';
+document.querySelectorAll('.cam-opt').forEach(opt => {
+  opt.addEventListener('click', () => {
+    document.querySelectorAll('.cam-opt').forEach(o => o.classList.remove('sel'));
+    opt.classList.add('sel');
+    selectedFacing = opt.dataset.facing;
+  });
+});
+
+function updateInterval(v) {
+  camInterval = parseInt(v);
+  document.getElementById('interval-label').textContent = (camInterval/1000).toFixed(1) + 's';
+  if (webcamRunning) {
+    clearInterval(webcamInterval);
+    webcamInterval = setInterval(captureAndDetect, camInterval);
+  }
+}
+
+async function startWebcam() {
+  hideErr('webcam-err');
+  try {
+    const constraints = {
+      video: { facingMode: selectedFacing, width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    };
+    webcamStream = await navigator.mediaDevices.getUserMedia(constraints);
+    const video = document.getElementById('cam-feed');
+    video.srcObject = webcamStream;
+    video.style.display = 'block';
+    document.getElementById('cam-placeholder').style.display = 'none';
+    webcamRunning = true;
+    document.getElementById('cam-start-btn').disabled = true;
+    document.getElementById('cam-stop-btn').disabled = false;
+    document.getElementById('fps-badge').style.display = 'flex';
+    setStatus('WEBCAM ACTIVE', 'busy');
+    document.getElementById('cam-status-dot').className = 'status-dot busy';
+    document.getElementById('cam-status-text').textContent = 'STREAMING · DETECTING';
+    webcamInterval = setInterval(captureAndDetect, camInterval);
+  } catch(e) {
+    showErr('webcam-err', 'Camera access denied or unavailable: ' + e.message);
+  }
+}
+
+function stopWebcam() {
+  webcamRunning = false;
+  clearInterval(webcamInterval);
+  if (webcamStream) { webcamStream.getTracks().forEach(t => t.stop()); webcamStream = null; }
+  document.getElementById('cam-feed').style.display = 'none';
+  document.getElementById('cam-result').style.display = 'none';
+  document.getElementById('cam-placeholder').style.display = 'flex';
+  document.getElementById('cam-start-btn').disabled = false;
+  document.getElementById('cam-stop-btn').disabled = true;
+  document.getElementById('fps-badge').style.display = 'none';
+  setStatus('IDLE', '');
+  document.getElementById('cam-status-dot').className = 'status-dot';
+  document.getElementById('cam-status-text').textContent = 'CAMERA STOPPED';
+}
+
+let detecting = false;
+async function captureAndDetect() {
+  if (detecting || !webcamRunning) return;
+  detecting = true;
+  const video = document.getElementById('cam-feed');
+  const canvas = document.getElementById('cam-canvas');
+  if (!video.videoWidth) { detecting = false; return; }
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  const frameData = canvas.toDataURL('image/jpeg', 0.8);
+
+  try {
+    const res = await fetch('/detect_frame', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ frame: frameData })
+    });
+    const data = await res.json();
+    if (data.success) {
+      const resultImg = document.getElementById('cam-result');
+      resultImg.src = data.image_b64;
+      resultImg.style.display = 'block';
+      setDetResults(data.detections, data.count);
+      // FPS
+      const now = Date.now();
+      if (lastFrameTime) {
+        const fps = (1000 / (now - lastFrameTime)).toFixed(1);
+        document.getElementById('fps-badge').textContent = fps + ' FPS';
+      }
+      lastFrameTime = now;
+      setStatus(`LIVE · ${data.count} OBJECT${data.count!==1?'S':''} DETECTED`, 'ok');
+    }
+  } catch(e) {
+    // silent fail on single frame
+  }
+  detecting = false;
+}
+
+// ═══════════════════════════════════════════════════════
+// RTSP TAB
+// ═══════════════════════════════════════════════════════
+function validateRtsp() {
+  // just UI feedback — connect btn always accessible
+}
+
+function updateRtspInterval(v) {
+  rtspInterval = parseInt(v);
+  document.getElementById('rtsp-interval-label').textContent = (rtspInterval/1000).toFixed(1) + 's';
+  if (rtspStreamId) {
+    clearInterval(rtspPollInterval);
+    rtspPollInterval = setInterval(pollRtspFrame, rtspInterval);
+  }
+}
+
+async function connectRtsp() {
+  const url = document.getElementById('rtsp-url').value.trim();
+  if (!url) { showErr('rtsp-err', 'Please enter a stream URL'); return; }
+  hideErr('rtsp-err');
+  setRtspStatus('busy', 'CONNECTING…');
+  const spin = document.getElementById('rtsp-spin');
+  spin.style.display = 'block';
+
+  try {
+    const res = await fetch('/rtsp/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      showErr('rtsp-err', data.error || 'Cannot connect to stream');
+      setRtspStatus('err', 'CONNECTION FAILED');
+      return;
+    }
+    rtspStreamId = data.stream_id;
+    document.getElementById('rtsp-result-wrap').style.display = 'block';
+    document.getElementById('rtsp-stop-btn').disabled = false;
+    setRtspStatus('busy', 'CONNECTED · POLLING FRAMES');
+    setStatus('RTSP STREAM ACTIVE', 'busy');
+    rtspPollInterval = setInterval(pollRtspFrame, rtspInterval);
+    pollRtspFrame(); // immediate first frame
+  } catch(e) {
+    showErr('rtsp-err', 'Network error: ' + e.message);
+    setRtspStatus('err', 'ERROR');
+  } finally {
+    spin.style.display = 'none';
+  }
+}
+
+async function pollRtspFrame() {
+  if (!rtspStreamId) return;
+  try {
+    const res = await fetch(`/rtsp/frame/${rtspStreamId}`);
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('rtsp-result-img').src = data.image_b64;
+      setDetResults(data.detections, data.count);
+      const now = Date.now();
+      if (lastFrameTime) {
+        document.getElementById('rtsp-fps').textContent = (1000/(now-lastFrameTime)).toFixed(1) + ' FPS';
+      }
+      lastFrameTime = now;
+      setStatus(`RTSP · ${data.count} OBJECT${data.count!==1?'S':''} DETECTED`, 'ok');
+    } else {
+      showErr('rtsp-err', data.error);
+    }
+  } catch(e) {
+    showErr('rtsp-err', 'Frame read error: ' + e.message);
+  }
+}
+
+async function stopRtsp() {
+  clearInterval(rtspPollInterval);
+  if (rtspStreamId) {
+    await fetch(`/rtsp/close/${rtspStreamId}`, { method: 'POST' }).catch(() => {});
+    rtspStreamId = null;
+  }
+  document.getElementById('rtsp-stop-btn').disabled = true;
+  setRtspStatus('', 'DISCONNECTED');
+  setStatus('IDLE', '');
+}
+
+function setRtspStatus(state, text) {
+  document.getElementById('rtsp-status-dot').className = 'status-dot' + (state ? ' ' + state : '');
+  document.getElementById('rtsp-status-text').textContent = text;
+}
+
+// ═══════════════════════════════════════════════════════
+// QR CODE (Mobile tab)
+// ═══════════════════════════════════════════════════════
+function generateQR() {
+  const url = window.location.href.split('?')[0];
+  document.getElementById('qr-url-text').textContent = url;
+  document.getElementById('local-ip-display').textContent = url;
+  const canvas = document.getElementById('qr-canvas');
+  drawSimpleQR(canvas, url);
+}
+
+// Minimal QR-like placeholder (real QR needs library)
+function drawSimpleQR(canvas, text) {
+  const ctx = canvas.getContext('2d');
+  const s = 140;
+  ctx.fillStyle = '#0e1419';
+  ctx.fillRect(0, 0, s, s);
+  ctx.fillStyle = '#00d4ff';
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = 'center';
+  // Draw a pattern that looks QR-like using the URL hash
+  const cells = 14;
+  const cell = s / cells;
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) & 0xffffffff;
+  for (let r = 0; r < cells; r++) {
+    for (let c = 0; c < cells; c++) {
+      const v = ((hash >> ((r * cells + c) % 32)) & 1) ^ ((r + c) % 2 === 0 ? 1 : 0);
+      // Always fill corners (finder pattern)
+      const inCorner = (r < 3 && c < 3) || (r < 3 && c >= cells-3) || (r >= cells-3 && c < 3);
+      if (v || inCorner) {
+        ctx.fillStyle = inCorner ? '#ff6b35' : '#00d4ff';
+        ctx.fillRect(c * cell + 1, r * cell + 1, cell - 1, cell - 1);
+      }
+    }
+  }
+  // Border
+  ctx.strokeStyle = '#00d4ff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, s-1, s-1);
+  // URL text below
+  ctx.fillStyle = '#4a6070';
+  ctx.font = '7px monospace';
+  ctx.fillText('SCAN TO OPEN', s/2, s - 4);
+}
+
+// ═══════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════
+function showErr(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = '⚠ ' + msg;
+  el.style.display = 'block';
+}
+function hideErr(id) { document.getElementById(id).style.display = 'none'; }
+
+function setBtnLoading(btnId, spinId, textId, text, loading) {
+  document.getElementById(btnId).disabled = loading;
+  document.getElementById(spinId).style.display = loading ? 'block' : 'none';
+  document.getElementById(textId).textContent = text;
+}
+</script>
+</body>
+</html>

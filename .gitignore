@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# YOLOv5 cache / weights
+*.pt
+runs/
+yolov5/
+
+# Uploads & results
+static/results/*.jpg
+static/results/*.png
+static/results/*.jpeg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Torch cache
+torch_cache/
