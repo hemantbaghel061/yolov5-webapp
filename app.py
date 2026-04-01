@@ -15,7 +15,7 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 print("Loading YOLOv5s model...")
-model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True, trust_repo=True)
 model.eval()
 print("Model ready.")
 
