@@ -1,13 +1,13 @@
+# v2
 flask==2.3.3
 gunicorn==21.2.0
-torch
-torchvision
-Pillow==10.0.1
+ultralytics
+Pillow
 numpy
 pandas
-requests==2.31.0
-PyYAML==6.0.1
-tqdm==4.66.1
+requests
+PyYAML
+tqdm
 matplotlib
 seaborn
 scipy
