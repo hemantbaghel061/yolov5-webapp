@@ -1,5 +1,5 @@
 # YOLOv5 Object Detection Web App
-### Deploy on Render.com — Free Tier
+
 
 ---
 
