@@ -34,7 +34,7 @@ except Exception as e:
     print(f"torch.hub failed: {e}")
     try:
         from ultralytics import YOLO
-        model = YOLO('yolov5su.pt')
+        model = YOLO('yolov5s.pt')
         USE_TORCH_HUB = False
         print("Model loaded via ultralytics OK")
     except Exception as e2:
