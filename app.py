@@ -61,7 +61,7 @@ def run_detection_on_pil(img):
                 'confidence': round(float(row['confidence']) * 100, 1)
             })
     else:
-        results = model(img_rgb)
+        results = model(img_rgb, conf=0.15, iou=0.45, imgsz=640)
         result_img = Image.fromarray(results[0].plot())
         detections = []
         for box in results[0].boxes:
