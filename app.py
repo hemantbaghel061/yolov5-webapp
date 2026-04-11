@@ -134,9 +134,25 @@ def rtsp_close(stream_id):
     return jsonify({'success': True})
 
 
-@app.route('/model_status', methods=['GET'])
-def model_status():
-    return jsonify({'loaded': True, 'backend': 'ultralytics', 'model': 'yolov5s'})
+@app.route('/test_detect', methods=['GET'])
+def test_detect():
+    try:
+        import numpy as np
+        # Create a simple test image (640x640 white image)
+        test_img = Image.fromarray(np.zeros((640, 640, 3), dtype=np.uint8) + 200)
+        results = model.predict(source=test_img, conf=0.15, iou=0.45, imgsz=640, verbose=True)
+        boxes = results[0].boxes
+        return jsonify({
+            'success': True,
+            'num_detections': len(boxes),
+            'model_names': model.names,
+            'results_type': str(type(results[0])),
+            'boxes_type': str(type(boxes)),
+            'raw_boxes': str(boxes)
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()})
 
 
 @app.route('/static/results/<path:filename>')
