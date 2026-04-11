@@ -4,7 +4,6 @@ import uuid
 import threading
 import base64
 import pathlib
-import numpy as np
 
 from flask import Flask, request, jsonify, send_from_directory, render_template_string
 from PIL import Image
@@ -20,58 +19,24 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 rtsp_streams = {}
 rtsp_lock = threading.Lock()
 
-# Load model
 print("Loading YOLOv5s model...")
-try:
-    import torch
-    model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True, trust_repo=True, force_reload=False, verbose=False)
-    model.eval()
-    model.conf = 0.25
-    model.iou = 0.45
-    USE_TORCH_HUB = True
-    print("Model loaded via torch.hub OK")
-except Exception as e:
-    print(f"torch.hub failed: {e}")
-    try:
-        from ultralytics import YOLO
-        model = YOLO('yolov5s.pt')
-        USE_TORCH_HUB = False
-        print("Model loaded via ultralytics OK")
-    except Exception as e2:
-        print(f"ultralytics also failed: {e2}")
-        model = None
-        USE_TORCH_HUB = False
+from ultralytics import YOLO
+model = YOLO('yolov5s.pt')
+print("Model loaded OK")
 
 
 def run_detection_on_pil(img):
-    if model is None:
-        return None, [], 0
-
     img_rgb = img.convert('RGB')
-
-    if USE_TORCH_HUB:
-        results = model(img_rgb, size=640)
-        results.render()
-        result_img = Image.fromarray(results.ims[0])
-        detections = []
-        df = results.pandas().xyxy[0]
-        for _, row in df.iterrows():
-            detections.append({
-                'label': row['name'],
-                'confidence': round(float(row['confidence']) * 100, 1)
-            })
-    else:
-        results = model(img_rgb, conf=0.15, iou=0.45, imgsz=640)
-        result_img = Image.fromarray(results[0].plot())
-        detections = []
-        for box in results[0].boxes:
-            label = model.names[int(box.cls)]
-            conf = round(float(box.conf) * 100, 1)
-            detections.append({'label': label, 'confidence': conf})
-
+    results = model.predict(source=img_rgb, conf=0.15, iou=0.45, imgsz=640, verbose=False)
+    result_img = Image.fromarray(results[0].plot())
     buf = io.BytesIO()
     result_img.save(buf, format='JPEG', quality=85)
     b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+    detections = []
+    for box in results[0].boxes:
+        label = model.names[int(box.cls)]
+        conf = round(float(box.conf) * 100, 1)
+        detections.append({'label': label, 'confidence': conf})
     return f"data:image/jpeg;base64,{b64}", detections, len(detections)
 
 
@@ -91,8 +56,6 @@ def detect():
     try:
         img = Image.open(io.BytesIO(file.read())).convert('RGB')
         b64, detections, count = run_detection_on_pil(img)
-        if b64 is None:
-            return jsonify({'error': 'Model not loaded'}), 500
         return jsonify({'success': True, 'image_b64': b64,
                         'detections': detections, 'count': count})
     except Exception as e:
@@ -111,8 +74,6 @@ def detect_frame():
         img_bytes = base64.b64decode(raw)
         img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
         b64, detections, count = run_detection_on_pil(img)
-        if b64 is None:
-            return jsonify({'error': 'Model not loaded'}), 500
         return jsonify({'success': True, 'image_b64': b64,
                         'detections': detections, 'count': count})
     except Exception as e:
@@ -158,8 +119,6 @@ def rtsp_frame(stream_id):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(rgb)
         b64, detections, count = run_detection_on_pil(img)
-        if b64 is None:
-            return jsonify({'error': 'Model not loaded'}), 500
         return jsonify({'success': True, 'image_b64': b64,
                         'detections': detections, 'count': count})
     except Exception as e:
@@ -177,11 +136,7 @@ def rtsp_close(stream_id):
 
 @app.route('/model_status', methods=['GET'])
 def model_status():
-    return jsonify({
-        'loaded': model is not None,
-        'backend': 'torch_hub' if USE_TORCH_HUB else 'ultralytics',
-        'type': str(type(model))
-    })
+    return jsonify({'loaded': True, 'backend': 'ultralytics', 'model': 'yolov5s'})
 
 
 @app.route('/static/results/<path:filename>')
